@@ -4,7 +4,6 @@ from aiogram.filters import Command
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import yt_dlp
-import os
 
 # Токениңизди бул жерге жазасыз
 TOKEN = "8948619998:AAGgsQYXpWvFmOgS4T5j92KhvSCA68QDmZw"
@@ -17,10 +16,6 @@ dp = Dispatcher(storage=storage)
 
 # Колдонуучулардын санын сактоо үчүн база
 users_set = set()
-
-# Downloads папкасы жок болсо түзүп коёбуз
-if not os.path.exists("downloads"):
-  os.makedirs("downloads")
 
 
 # 1. /start командасы
@@ -58,10 +53,11 @@ async def check_link(message: types.Message):
   if "instagram.com" in url:
     users_set.add(message.from_user.id)
 
+    # Баскычтарды түзүү (Видео же Музыка тандоо үчүн)
     builder = InlineKeyboardBuilder()
     builder.button(text="🎬 Видео жүктөө", callback_data=f"video|{url}")
     builder.button(text="🎵 Музыка жүктөө", callback_data=f"audio|{url}")
-    builder.adjust(1)
+    builder.adjust(1)  # Баскычтарды биринин астына бири кылып жайгаштыруу
 
     await message.answer(
         "Эмнени жүктөп алгыңыз келет? Төмөнкүлөрдүн бирин тандаңыз:",
@@ -79,18 +75,13 @@ async def process_callback(callback: types.CallbackQuery):
 
   await callback.message.edit_text("⏳ Жүктөлүүдө, сураныч күтө туруңуз...")
 
-  filename = None
   try:
-    # cookies.txt файлы бар же жок экенин текшерип, параметрге кошобуз
-    ydl_base_opts = {
-        "outtmpl": "downloads/%(id)s.%(ext)s",
-        "noplaylist": True,
-    }
-    if os.path.exists("cookies.txt"):
-      ydl_base_opts["cookiefile"] = "cookies.txt"
-
     if action == "video":
-      ydl_opts = {**ydl_base_opts, "format": "best"}
+      ydl_opts = {
+          "format": "best",
+          "outtmpl": "downloads/%(id)s.%(ext)s",
+          "noplaylist": True,
+      }
       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info)
@@ -99,39 +90,31 @@ async def process_callback(callback: types.CallbackQuery):
 
     elif action == "audio":
       ydl_opts = {
-          **ydl_base_opts,
           "format": "bestaudio/best",
+          "outtmpl": "downloads/%(id)s.%(ext)s",
           "postprocessors": [{
               "key": "FFmpegExtractAudio",
               "preferredcodec": "mp3",
               "preferredquality": "192",
           }],
+          "noplaylist": True,
       }
       with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         filename = ydl.prepare_filename(info)
+        # Аудио форматка келгенде кеңейтүү mp3 болуп өзгөрөт
         filename = filename.rsplit(".", 1)[0] + ".mp3"
 
       await callback.message.answer_audio(types.FSInputFile(filename))
 
-    # Күтө турсун билдирүүсүн өчүрүү
+    # Күтө турсун деген билдирүүнү өчүрүү
     await bot.delete_message(
         chat_id=callback.message.chat.id,
         message_id=callback.message.message_id,
     )
 
   except Exception as e:
-    await callback.message.answer(
-        f"❌ Ката кетти: {e}\n\n(Эскертүү: Instagram'дын логин катасы чыкса,"
-        " ботко cookies.txt кошуу керек болушу мүмкүн)."
-    )
-
-  # Жүктөлүп бүткөн файлды серверден өчүрүп тазалоо (орун албаш үчүн)
-  if filename and os.path.exists(filename):
-    try:
-      os.remove(filename)
-    except:
-      pass
+    await callback.message.answer(f"❌ Ката кетти: {e}")
 
 
 # Ботту иштетүү
