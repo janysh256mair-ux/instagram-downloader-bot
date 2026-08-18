@@ -7,9 +7,9 @@ import yt_dlp
 import os
 
 # Токениңизди бул жерге жазасыз
-TOKEN = "СИЗДИН_БОТ_ТОКЕНИНИЗ"
+TOKEN = "8948619998:AAGgsQYXpWvFmOgS4T5j92KhvSCA68QDmZw"
 # Администратордун Telegram ID'син жазыңыз
-ADMIN_ID = 123456789  # Өзүңүздүн ID'ңизди жазыңыз
+ADMIN_ID = 6704696780  # Өзүңүздүн ID'ңизди жазыңыз
 
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
