@@ -1,72 +1,129 @@
-import asyncio
 import logging
-import os
-import sys
-from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart
-from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 import yt_dlp
 
-TOKEN = "8948619998:AAGgsQYXpWvFmOgS4T5j92KhvSCA68QDmZw"  # Өзүңүздүн токениңиз турсун
+# Токениңизди бул жерге жазасыз
+TOKEN = "8948619998:AAGgsQYXpWvFmOgS4T5j92KhvSCA68QDmZw"
+# Администратордун Telegram ID'син жазыңыз
+ADMIN_ID = 6704696780 # Өзүңүздүн ID'ңизди жазыңыз
 
-dp = Dispatcher()
+bot = Bot(token=TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 
-def get_choice_keyboard(url):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Видео жүктөө", callback_data=f"vid:{url}")],
-        [InlineKeyboardButton(text="🎵 Музыка (Аудио) жүктөө", callback_data=f"aud:{url}")]
-    ])
+# Колдонуучулардын санын сактоо үчүн база
+users_set = set()
 
-@dp.message(CommandStart())
-async def command_start_handler(message: Message) -> None:
-    await message.answer("Салам! Мага Instagram шилтемесин жибер, мен аны видео же музыка катары жүктөп берем. 📥")
 
+# 1. /start командасы
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+  user_id = message.from_user.id
+  users_set.add(user_id)
+
+  welcome_text = (
+      f"Салам, {message.from_user.first_name}! 👋\n\n"
+      "Бул бот аркылуу сиз **Instagram'дан** видео жана музыкаларды оңой эле"
+      " жүктөп ала аласыз. 📥\n\n"
+      "📌 Жөн гана Instagram шилтемесин жибериңиз!"
+  )
+  await message.answer(welcome_text)
+
+
+# 2. Админ үчүн статистика (/stats)
+@dp.message(Command("stats"))
+async def cmd_stats(message: types.Message):
+  if message.from_user.id == ADMIN_ID:
+    total_users = len(users_set)
+    await message.answer(
+        f"📊 **Статистика:**\n\nБотту колдонгон уникалдуу колдонуучулар"
+        f" саны: {total_users} киши."
+    )
+  else:
+    await message.answer("Бул буйрук тек гана администратор үчүн! ❌")
+
+
+# 3. Шилтеме келгенде баскычтарды чыгаруу
 @dp.message()
-async def handle_url(message: Message) -> None:
-    if "instagram.com" in message.text:
-        await message.answer("Эмнени жүктөп алайын?", reply_markup=get_choice_keyboard(message.text))
-    else:
-        await message.answer("⚠️ Сураныч, туура Instagram шилтемесин жөнөтүңүз.")
+async def check_link(message: types.Message):
+  url = message.text
+  if "instagram.com" in url:
+    users_set.add(message.from_user.id)
 
-@dp.callback_query(F.data.startswith(("vid:", "aud:")))
-async def download_callback(callback: CallbackQuery):
-    action, url = callback.data.split(":", 1)
-    await callback.message.edit_text("⏳ Жүктөлүүдө, күтө туруңуз...")
+    # Баскычтарды түзүү (Видео же Музыка тандоо үчүн)
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🎬 Видео жүктөө", callback_data=f"video|{url}")
+    builder.button(text="🎵 Музыка жүктөө", callback_data=f"audio|{url}")
+    builder.adjust(1)  # Баскычтарды биринин астына бири кылып жайгаштыруу
 
-    file_name = f"download_{callback.from_user.id}"
-    
-    # FFmpeg талап кылбаган жөнөкөй жана эффективдүү форматтар
-    ydl_opts = {
-        'format': 'best' if action == "vid" else 'bestaudio',
-        'outtmpl': f"{file_name}.{'mp4' if action == 'vid' else 'm4a'}",
-        'quiet': True
-    }
+    await message.answer(
+        "Эмнени жүктөп алгыңыз келет? Төмөнкүлөрдүн бирин тандаңыз:",
+        reply_markup=builder.as_markup(),
+    )
+  else:
+    await message.answer("Сураныч, туура Instagram шилтемесин жибериңиз.")
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        
-        final_file = f"{file_name}.{'mp4' if action == 'vid' else 'm4a'}"
-        
-        if action == "vid":
-            await callback.message.answer_video(video=FSInputFile(final_file), caption="✅ Видео ийгиликтүү жүктөлдү!")
-        else:
-            await callback.message.answer_audio(audio=FSInputFile(final_file), caption="✅ Музыка ийгиликтүү жүктөлдү!")
-        
-        await callback.message.delete()
-        if os.path.exists(final_file): 
-            os.remove(final_file)
-        
-    except Exception as e:
-        await callback.message.answer(f"❌ Ката кетти: Шилтеменин туура экенин текшериңиз.")
-        print(f"Ката чоо-жайы: {e}")
 
-async def main() -> None:
-    bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    await dp.start_polling(bot)
+# 4. Кнопканы басканда иштөөчү бөлүк
+@dp.callback_query()
+async def process_callback(callback: types.CallbackQuery):
+  data = callback.data
+  action, url = data.split("|", 1)
+
+  await callback.message.edit_text("⏳ Жүктөлүүдө, сураныч күтө туруңуз...")
+
+  try:
+    if action == "video":
+      ydl_opts = {
+          "format": "best",
+          "outtmpl": "downloads/%(id)s.%(ext)s",
+          "noplaylist": True,
+      }
+      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+
+      await callback.message.answer_video(types.FSInputFile(filename))
+
+    elif action == "audio":
+      ydl_opts = {
+          "format": "bestaudio/best",
+          "outtmpl": "downloads/%(id)s.%(ext)s",
+          "postprocessors": [{
+              "key": "FFmpegExtractAudio",
+              "preferredcodec": "mp3",
+              "preferredquality": "192",
+          }],
+          "noplaylist": True,
+      }
+      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
+        # Аудио форматка келгенде кеңейтүү mp3 болуп өзгөрөт
+        filename = filename.rsplit(".", 1)[0] + ".mp3"
+
+      await callback.message.answer_audio(types.FSInputFile(filename))
+
+    # Күтө турсун деген билдирүүнү өчүрүү
+    await bot.delete_message(
+        chat_id=callback.message.chat.id,
+        message_id=callback.message.message_id,
+    )
+
+  except Exception as e:
+    await callback.message.answer(f"❌ Ката кетти: {e}")
+
+
+# Ботту иштетүү
+async def main():
+  print("Бот ишке кирди...")
+  await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
-    asyncio.run(main())
+  import asyncio
+
+  asyncio.run(main())
