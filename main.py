@@ -1,3 +1,4 @@
+import os
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -5,10 +6,14 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import yt_dlp
 
+# Жүктөлө турган папканын бар экенин текшерүү жана түзүү
+if not os.path.exists("downloads"):
+    os.makedirs("downloads")
+
 # Токениңизди бул жерге жазасыз
 TOKEN = "8948619998:AAGgsQYXpWvFmOgS4T5j92KhvSCA68QDmZw"
 # Администратордун Telegram ID'син жазыңыз
-ADMIN_ID = 6704696780 # Өзүңүздүн ID'ңизди жазыңыз
+ADMIN_ID = 6704696780 
 
 bot = Bot(token=TOKEN)
 storage = MemoryStorage()
@@ -21,109 +26,117 @@ users_set = set()
 # 1. /start командасы
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-  user_id = message.from_user.id
-  users_set.add(user_id)
+    user_id = message.from_user.id
+    users_set.add(user_id)
 
-  welcome_text = (
-      f"Салам, {message.from_user.first_name}! 👋\n\n"
-      "Бул бот аркылуу сиз **Instagram'дан** видео жана музыкаларды оңой эле"
-      " жүктөп ала аласыз. 📥\n\n"
-      "📌 Жөн гана Instagram шилтемесин жибериңиз!"
-  )
-  await message.answer(welcome_text)
+    welcome_text = (
+        f"Салам, {message.from_user.first_name}! 👋\n\n"
+        "Бул бот аркылуу сиз **Instagram'дан** видео жана музыкаларды оңой эле "
+        "жүктөп ала аласыз. 📥\n\n"
+        "📌 Жөн гана Instagram шилтемесин жибериңиз!"
+    )
+    await message.answer(welcome_text)
 
 
 # 2. Админ үчүн статистика (/stats)
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
-  if message.from_user.id == ADMIN_ID:
-    total_users = len(users_set)
-    await message.answer(
-        f"📊 **Статистика:**\n\nБотту колдонгон уникалдуу колдонуучулар"
-        f" саны: {total_users} киши."
-    )
-  else:
-    await message.answer("Бул буйрук тек гана администратор үчүн! ❌")
+    if message.from_user.id == ADMIN_ID:
+        total_users = len(users_set)
+        await message.answer(
+            f"📊 **Статистика:**\n\nБотту колдонгон уникалдуу колдонуучулар саны: {total_users} киши."
+        )
+    else:
+        await message.answer("Бул буйрук тек гана администратор үчүн! ❌")
 
 
 # 3. Шилтеме келгенде баскычтарды чыгаруу
 @dp.message()
 async def check_link(message: types.Message):
-  url = message.text
-  if "instagram.com" in url:
-    users_set.add(message.from_user.id)
+    url = message.text
+    if "instagram.com" in url:
+        users_set.add(message.from_user.id)
 
-    # Баскычтарды түзүү (Видео же Музыка тандоо үчүн)
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🎬 Видео жүктөө", callback_data=f"video|{url}")
-    builder.button(text="🎵 Музыка жүктөө", callback_data=f"audio|{url}")
-    builder.adjust(1)  # Баскычтарды биринин астына бири кылып жайгаштыруу
+        # Баскычтарды түзүү (Видео же Музыка тандоо үчүн)
+        builder = InlineKeyboardBuilder()
+        builder.button(text="🎬 Видео жүктөө", callback_data=f"video|{url}")
+        builder.button(text="🎵 Музыка жүктөө", callback_data=f"audio|{url}")
+        builder.adjust(1)  # Баскычтарды биринин астына бири кылып жайгаштыруу
 
-    await message.answer(
-        "Эмнени жүктөп алгыңыз келет? Төмөнкүлөрдүн бирин тандаңыз:",
-        reply_markup=builder.as_markup(),
-    )
-  else:
-    await message.answer("Сураныч, туура Instagram шилтемесин жибериңиз.")
+        await message.answer(
+            "Эмнени жүктөп алгыңыз келет? Төмөнкүлөрдүн бирин тандаңыз:",
+            reply_markup=builder.as_markup(),
+        )
+    else:
+        await message.answer("Сураныч, туура Instagram шилтемесин жибериңиз.")
 
 
 # 4. Кнопканы басканда иштөөчү бөлүк
 @dp.callback_query()
 async def process_callback(callback: types.CallbackQuery):
-  data = callback.data
-  action, url = data.split("|", 1)
+    data = callback.data
+    action, url = data.split("|", 1)
 
-  await callback.message.edit_text("⏳ Жүктөлүүдө, сураныч күтө туруңуз...")
+    await callback.message.edit_text("⏳ Жүктөлүүдө, сураныч күтө туруңуз...")
 
-  try:
-    if action == "video":
-      ydl_opts = {
-          "format": "best",
-          "outtmpl": "downloads/%(id)s.%(ext)s",
-          "noplaylist": True,
-      }
-      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
+    filename = None
+    try:
+        if action == "video":
+            ydl_opts = {
+                "format": "best",
+                "outtmpl": "downloads/%(id)s.%(ext)s",
+                "noplaylist": True,
+                "cookiefile": "cookies.txt",  # Cookie кошулду
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
 
-      await callback.message.answer_video(types.FSInputFile(filename))
+            await callback.message.answer_video(types.FSInputFile(filename))
 
-    elif action == "audio":
-      ydl_opts = {
-          "format": "bestaudio/best",
-          "outtmpl": "downloads/%(id)s.%(ext)s",
-          "postprocessors": [{
-              "key": "FFmpegExtractAudio",
-              "preferredcodec": "mp3",
-              "preferredquality": "192",
-          }],
-          "noplaylist": True,
-      }
-      with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-        # Аудио форматка келгенде кеңейтүү mp3 болуп өзгөрөт
-        filename = filename.rsplit(".", 1)[0] + ".mp3"
+        elif action == "audio":
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": "downloads/%(id)s.%(ext)s",
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192",
+                }],
+                "noplaylist": True,
+                "cookiefile": "cookies.txt",  # Cookie кошулду
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+                filename = filename.rsplit(".", 1)[0] + ".mp3"
 
-      await callback.message.answer_audio(types.FSInputFile(filename))
+            await callback.message.answer_audio(types.FSInputFile(filename))
 
-    # Күтө турсун деген билдирүүнү өчүрүү
-    await bot.delete_message(
-        chat_id=callback.message.chat.id,
-        message_id=callback.message.message_id,
-    )
+        # Күтө турсун деген билдирүүнү өчүрүү
+        await bot.delete_message(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+        )
 
-  except Exception as e:
-    await callback.message.answer(f"❌ Ката кетти: {e}")
+    except Exception as e:
+        await callback.message.answer(f"❌ Ката кетти: {e}")
+
+    finally:
+        # Жүктөлүп бүткөндөн кийин сервердеги файлды тазалоо (орун үнөмдөө үчүн)
+        if filename and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except Exception:
+                pass
 
 
 # Ботту иштетүү
 async def main():
-  print("Бот ишке кирди...")
-  await dp.start_polling(bot)
+    print("Бот ишке кирди...")
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-  import asyncio
-
-  asyncio.run(main())
+    import asyncio
+    asyncio.run(main())
